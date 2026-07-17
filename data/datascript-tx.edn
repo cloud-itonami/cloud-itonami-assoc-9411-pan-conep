@@ -1,0 +1,14 @@
+;; data/datascript-tx.edn — DataScript tx-data derived from src/association/facts.cljc
+;; `association.facts/catalog` (ADR-2607141700 Wave 0). Same shape as sibling files.
+
+[#:association-rule{:id "conep.founding-1964-07"
+                     :title "Consejo Nacional de la Empresa Privada (CONEP) founded July 1964 in Panama City (conep.org.pa itself returned HTTP 403; independently corroborated by ceib.info's directly-read entry)"
+                     :association "conep"
+                     :isic "9411"
+                     :country "PAN"
+                     :kind :governance-program
+                     :url "https://www.ceib.info/en/node/34"
+                     :url-provenance :ceib-info-corroborated
+                     :established-date "1964-07"
+                     :retrieved-at "2026-07-18"
+                     :topic [:governance]}]

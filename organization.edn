@@ -1,0 +1,10 @@
+;; Real-world organization identity/contact.
+;; :head-role is institutional title only -- no personal names.
+{:name-en "Consejo Nacional de la Empresa Privada (CONEP)"
+ :abbreviation "CONEP"
+ :official-url "https://conep.org.pa/"
+ :isic "9411"
+ :country "PAN"
+ :established-date "1964-07"
+ :head-role-note "institutional office title only (President); personal names of current/former office-holders incidentally encountered but never persisted here"
+ :sourced-from "verified 2026-07-18 -- conep.org.pa itself returned HTTP 403 Forbidden on every direct WebFetch attempt (both /quienes-somos/ and the older /contenidos-estaticos/quienes-somos/ path), so its founding claim could NOT be independently confirmed by directly reading the primary source. Instead, ceib.info (CEIB, an independent international business-federation directory) was directly read and states verbatim: 'En julio de 1964, en la ciudad de Panamá, apareció el Consejo Nacional de la Empresa Privada' (In July 1964, in Panama City, the National Council of Private Enterprise appeared) -- month/year precision only, no day. This phrasing closely mirrors English-language descriptions of CONEP's own self-description surfaced in aggregated search results ('CONEP appeared on the Panamanian panorama in July 1964'), suggesting ceib.info is mirroring CONEP's own official text, but this could not be verified by directly reading conep.org.pa itself. No Wikipedia article exists for CONEP. Given the 403 block and lack of independent day-level corroboration, only month precision (1964-07) is used, and no second precisely-dateable milestone could be found despite checking conep.org.pa (blocked), ceib.info, EU-LAC Foundation's public and intranet pages (no usable content), and a Wikipedia search (no article) -- this catalog honestly contains a single entry rather than forcing a second, weaker fact (matching the precedent set for Ecuador's CIP and Uruguay's CIU)."}
