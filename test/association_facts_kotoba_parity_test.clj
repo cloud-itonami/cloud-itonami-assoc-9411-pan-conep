@@ -12,7 +12,8 @@
   by position, so the port chose the order the data file writes; the assertion
   below compares against that written order rather than against `seq` on a set,
   which is not stable to rely on."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.edn :as edn]
+            [clojure.test :refer [deftest is testing]]
             [association.facts :as facts]
             [kotoba.compiler.core :as compiler]
             [kotoba.kir :as ir]))
@@ -25,16 +26,26 @@
 (def ^:private slug "conep")
 (def ^:private fields
   ["id" "title" "association" "isic" "country" "kind" "url" "url-provenance"
-   "established-date" "retrieved-at"])
+   "source-article" "source-quote" "established-date" "last-revised-date"
+   "retrieved-at"])
 (def ^:private kw->field
   {"id" :association-rule/id "title" :association-rule/title
    "association" :association-rule/association "isic" :association-rule/isic
    "country" :association-rule/country "kind" :association-rule/kind
    "url" :association-rule/url "url-provenance" :association-rule/url-provenance
+   "source-article" :association-rule/source-article
+   "source-quote" :association-rule/source-quote
    "established-date" :association-rule/established-date
+   "last-revised-date" :association-rule/last-revised-date
    "retrieved-at" :association-rule/retrieved-at})
 (def ^:private entries (vec (facts/spec-basis slug)))
-(def ^:private topic-order [["governance"]])
+(def ^:private topic-order
+  "The order the data file writes, read from the data file -- not a literal.
+  A literal here would have to be retyped every time the catalog grows, and
+  the failure mode of forgetting is that the suite checks fewer entries than
+  the catalog has while still reporting a pass."
+  (mapv #(mapv name (:association-rule/topic %))
+        (edn/read-string (slurp "data/datascript-tx.edn"))))
 
 (deftest the-fixture-reads-a-real-catalog
   ;; An empty catalog compares equal to an empty port.
@@ -64,11 +75,16 @@
         (is (= nm (present (call 'topic slug i t))))))))
 
 (deftest by-topic-answers-the-same-entries
-  (doseq [names topic-order t names]
+  (doseq [t (distinct (apply concat topic-order))]
     (testing t
       (let [cljc (mapv :association-rule/id (facts/by-topic slug (keyword t)))]
         (is (= (count cljc) (call 'by-topic-count slug t)))
-        (is (= (first cljc) (present (call 'by-topic-id slug t 0)))))))
+        ;; Every position, not just the first: an index-0-only assertion passes
+        ;; on a port that answers the first entry and nothing after it.
+        (doseq [[i id] (map-indexed vector cljc)]
+          (is (= id (present (call 'by-topic-id slug t i)))))
+        (is (nil? (present (call 'by-topic-id slug t (count cljc))))
+            "one past the end is not an entry"))))
   (is (zero? (call 'by-topic-count slug "no-such-topic")))
   (is (nil? (present (call 'by-topic-id slug "no-such-topic" 0)))))
 

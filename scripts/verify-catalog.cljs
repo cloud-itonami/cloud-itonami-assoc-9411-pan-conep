@@ -1,0 +1,190 @@
+#!/usr/bin/env nbb
+;; scripts/verify-catalog.cljs — check the CoNEP catalog against its own sources.
+;;
+;;   nbb scripts/verify-catalog.cljs            structural only (offline)
+;;   nbb scripts/verify-catalog.cljs --live     also fetch every :url and require
+;;                                              every :source-quote to be in it
+;;
+;; Exit codes are three-valued on purpose:
+;;
+;;   0  checked, nothing wrong
+;;   1  checked, findings printed
+;;   2  REFUSED -- could not check. Not 0, because "I could not read the
+;;      catalog" and "I read the catalog and it was fine" must not leave the
+;;      same trace, and not 1, because there is no finding to act on.
+;;
+;; Why :source-quote exists at all: reachability is not support. A URL that
+;; returns HTTP 200 and does not contain the claim looks exactly like a URL
+;; that does, and the sibling threat-intelligence catalog was actually caught
+;; by that -- two feeds returned 200 with nothing but comment lines, one of
+;; them saying in its own body that it had been deprecated. So --live does not
+;; ask whether the citation resolves; it asks whether the document still says
+;; the thing the entry says it says.
+
+(ns verify-catalog
+  (:require [clojure.edn :as edn]
+            [clojure.string :as str]
+            ["fs" :as fs]
+            ["os" :as os]
+            ["path" :as path]
+            ["child_process" :as cp]))
+
+;; process.argv holds this script's own path. Dropping a fixed count gets it
+;; wrong the moment the launcher changes, and the symptom is that the script
+;; path becomes the catalog path -- which this script then reports as
+;; unreadable, i.e. a refusal that looks like a broken catalog.
+(def argv (vec (remove #(str/ends-with? % "verify-catalog.cljs")
+                       (drop 2 (js->clj (.-argv js/process))))))
+(def live? (some #{"--live"} argv))
+(def data-path
+  (or (first (remove #(str/starts-with? % "--") argv)) "data/datascript-tx.edn"))
+
+(def ASSOCIATION "conep")
+(def ISIC "9411")
+(def COUNTRY "PAN")
+
+(defn refuse! [msg]
+  (println (str "REFUSED: " msg))
+  (println "Refusing to report a pass on a catalog this run could not read.")
+  (.exit js/process 2))
+
+(defn- read-catalog []
+  (let [txt (try (fs/readFileSync data-path "utf8")
+                 (catch :default e (refuse! (str data-path ": " (.-message e)))))
+        data (try (edn/read-string txt)
+                  (catch :default e (refuse! (str data-path " is not readable EDN: "
+                                                 (.-message e)))))]
+    (when-not (vector? data)
+      (refuse! (str data-path " is not a vector of entries (got "
+                    (if (nil? data) "nil" (type data)) ")")))
+    (when (empty? data)
+      ;; An empty catalog satisfies every per-entry assertion below. Without
+      ;; this floor, deleting the catalog would be reported as a clean run.
+      (refuse! (str data-path " holds no entries; every per-entry check would "
+                    "be vacuously true")))
+    [txt data]))
+
+(def date-re #"^\d{4}(-\d{2})?(-\d{2})?$")
+
+(defn- structural [data]
+  (let [ids (map :association-rule/id data)
+        dups (->> ids frequencies (keep (fn [[k n]] (when (< 1 n) k))) sort)]
+    (concat
+     (for [d dups] [:duplicate-id (str d " appears " (count (filter #{d} ids)) " times")])
+     (mapcat
+      (fn [[i e]]
+        (let [at (fn [k] (get e (keyword "association-rule" k)))
+              where (str "entry " i " (" (or (at "id") "<no id>") ")")
+              f (fn [tag msg] [tag (str where ": " msg)])]
+          (concat
+           (when-not (string? (at "id")) [(f :missing-key ":id is missing or not a string")])
+           (when (and (string? (at "id"))
+                      (not (str/starts-with? (at "id") (str ASSOCIATION "."))))
+             [(f :id-shape (str ":id must start with \"" ASSOCIATION ".\""))])
+           (when-not (and (string? (at "title")) (seq (at "title")))
+             [(f :missing-key ":title is missing or empty")])
+           (when-not (= ASSOCIATION (at "association"))
+             [(f :missing-key (str ":association must be " ASSOCIATION))])
+           (when-not (= ISIC (at "isic")) [(f :missing-key (str ":isic must be " ISIC))])
+           (when-not (= COUNTRY (at "country")) [(f :missing-key (str ":country must be " COUNTRY))])
+           (when-not (keyword? (at "kind")) [(f :missing-key ":kind must be a keyword")])
+           (when-not (and (string? (at "url")) (str/starts-with? (at "url") "https://"))
+             [(f :url-shape ":url must be an https:// URL")])
+           (when-not (keyword? (at "url-provenance"))
+             [(f :missing-key ":url-provenance must be a keyword")])
+           (when-not (and (string? (at "source-article")) (seq (at "source-article")))
+             [(f :missing-key ":source-article is missing or empty")])
+           (when-not (and (string? (at "source-quote")) (seq (at "source-quote")))
+             [(f :missing-key ":source-quote is missing or empty -- an entry with no
+ quote cannot be checked against its own source")])
+           ;; An article-level rule that does not name its article in the title
+           ;; is the drift this catalog is most likely to grow: the quote moves
+           ;; to another article and the prose keeps the old number.
+           (when (and (string? (at "source-article"))
+                      (re-matches #"\d+" (at "source-article"))
+                      (string? (at "title"))
+                      (not (str/includes? (str/lower-case (at "title"))
+                                          (str "article " (at "source-article")))))
+             [(f :article-not-in-title
+                 (str "title does not name article " (at "source-article")))])
+           (when-not (and (vector? (at "topic")) (seq (at "topic")))
+             [(f :missing-key ":topic must be a non-empty vector")])
+           (for [d [(at "established-date") (at "last-revised-date") (at "retrieved-at")]
+                 :when (and (some? d) (not (re-matches date-re (str d))))]
+             (f :date-shape (str "not an ISO date: " d)))
+           (when-not (or (at "established-date") (at "last-revised-date"))
+             [(f :missing-key "needs :established-date or :last-revised-date")]))))
+      (map-indexed vector data)))))
+
+(def ua "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36")
+
+(defn- have? [bin]
+  (try (cp/execFileSync "sh" #js ["-c" (str "command -v " bin)] #js {:stdio "ignore"}) true
+       (catch :default _ false)))
+
+(defn- fetch-text
+  "Returns [status text] or [status nil] -- nil text means the body arrived but
+   this run could not turn it into text, which is a refusal, not a finding."
+  [url]
+  (let [tmp (path/join (os/tmpdir) (str "conep-src-" (hash url)))
+        status (try (str/trim (str (cp/execFileSync
+                                    "curl" #js ["-sS" "-L" "--max-time" "60"
+                                                "-A" ua "-o" tmp
+                                                "-w" "%{http_code}" url]
+                                    #js {:encoding "utf8"})))
+                    (catch :default e (str "curl-failed: " (.-message e))))
+        body (try (fs/readFileSync tmp) (catch :default _ nil))
+        pdf? (and body (str/starts-with? (.toString (.slice body 0 5) "utf8") "%PDF-"))
+        text (cond
+               (nil? body) nil
+               pdf? (when (have? "pdftotext")
+                      (try (str (cp/execFileSync "pdftotext" #js [tmp "-"]
+                                                 #js {:encoding "utf8"
+                                                      :maxBuffer 33554432}))
+                           (catch :default _ nil)))
+               :else (-> (.toString body "utf8")
+                         (str/replace #"(?is)<(script|style|noscript)[^>]*>.*?</\1>" " ")
+                         (str/replace #"(?s)<[^>]+>" " ")
+                         (str/replace #"&nbsp;" " ")
+                         (str/replace #"&amp;" "&")
+                         (str/replace #"&#8220;|&#8221;|&quot;" "\"")))]
+    (try (fs/unlinkSync tmp) (catch :default _ nil))
+    [status (when text (str/replace text #"\s+" " "))]))
+
+(defn- run-live [data]
+  (when-not (have? "curl") (refuse! "curl is not on PATH"))
+  (let [urls (vec (distinct (map :association-rule/url data)))
+        fetched (reduce (fn [m u] (assoc m u (fetch-text u))) {} urls)
+        unreadable (for [[u [status text]] fetched
+                         :when (or (not (re-matches #"2\d\d" status)) (nil? text))]
+                     (str u " -> status=" status
+                          (when (nil? text) " (body could not be turned into text"
+                                            (when-not (have? "pdftotext")
+                                              "; pdftotext is not on PATH")
+                                            ")")))]
+    (println (str "FETCHED\t" (- (count urls) (count unreadable)) "/" (count urls)))
+    (when (seq unreadable)
+      ;; Every quote check below would be "not found", which reads exactly like
+      ;; a fabricated citation. Refuse instead of accusing the catalog.
+      (refuse! (str "could not read " (count unreadable) " of " (count urls)
+                    " sources:\n  " (str/join "\n  " unreadable))))
+    (keep (fn [e]
+            (let [u (:association-rule/url e)
+                  q (str/replace (str (:association-rule/source-quote e)) #"\s+" " ")
+                  [_ text] (get fetched u)]
+              (when-not (str/includes? text q)
+                [:quote-not-in-source
+                 (str (:association-rule/id e) ": :source-quote is not in " u
+                      "\n      quote: " q)])))
+          data)))
+
+(let [[txt data] (read-catalog)
+      findings (concat (structural data) (when live? (run-live data)))]
+  (println (str "SCANNED\t" (count data) " entries, "
+                (count (re-seq #"https?://" txt)) " citations, "
+                (count (distinct (map :association-rule/url data))) " distinct sources"
+                (if live? ", live" ", structural only")))
+  (doseq [[tag msg] findings] (println (str "  [" (name tag) "] " msg)))
+  (if (seq findings)
+    (do (println (str (count findings) " finding(s)")) (.exit js/process 1))
+    (do (println "ok") (.exit js/process 0))))
