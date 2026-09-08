@@ -1,6 +1,6 @@
 (ns association.facts-test
   (:require [clojure.edn :as edn]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is testing]]
             [association.facts :as facts]))
 
