@@ -3,7 +3,7 @@
 ;; plus :source-article / :source-quote (see schema/association-rule.edn).
 ;;
 ;; Every :source-quote below is a verbatim span of the document at :url, checked by
-;; `nbb scripts/verify-catalog.cljs --live`. Do not paraphrase one to make it read
+;; `kbb --backend sci scripts/verify-catalog.cljk --live`. Do not paraphrase one to make it read
 ;; better -- the whole point is that it is the document's own words, so a citation
 ;; that stops supporting its entry fails instead of passing quietly.
 
