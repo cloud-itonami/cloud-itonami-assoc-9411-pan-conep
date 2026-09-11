@@ -52,8 +52,8 @@ Every entry carries the article it comes from (`:association-rule/source-article
 and the **verbatim span it rests on** (`:association-rule/source-quote`).
 
 ```bash
-nbb scripts/verify-catalog.cljs           # structural only, offline
-nbb scripts/verify-catalog.cljs --live    # fetch every :url, require every quote
+kbb --backend sci scripts/verify-catalog.cljk           # structural only, offline
+kbb --backend sci scripts/verify-catalog.cljk --live    # fetch every :url, require every quote
 ```
 
 `--live` does not ask whether the citation *resolves*. It asks whether the
@@ -85,16 +85,16 @@ it, and each is held to it by something that fails:
 |---|---|---|
 | `data/datascript-tx.edn` | authored catalog, DataScript tx-data | — |
 | `src/association/facts.cljc` | the catalog as Clojure | `test/association/facts_test.clj` (field by field) |
-| `src/association_facts.kotoba` | the catalog as Kotoba — reaches the Kotoba oracle, wasm, and both native ISAs | `nbb scripts/gen-kotoba-port.cljs --check` |
+| `src/association_facts.kotoba` | the catalog as Kotoba — reaches the Kotoba oracle, wasm, and both native ISAs | `kbb --backend sci scripts/gen-kotoba-port.cljk --check` |
 
 `test/association_facts_kotoba_parity_test.clj` closes the third edge, comparing
 `.cljc` against `.kotoba` field by field, so no two of the three can drift apart
 silently.
 
 ```bash
-nbb scripts/gen-kotoba-port.cljs          # regenerate the port
-nbb scripts/gen-kotoba-port.cljs --check  # exit 1 if someone hand-edited it
-clojure -M:test                            # both suites
+kbb --backend sci scripts/gen-kotoba-port.cljk          # regenerate the port
+kbb --backend sci scripts/gen-kotoba-port.cljk --check  # exit 1 if someone hand-edited it
+kbb -M:test                            # both suites
 ```
 
 `schema/association-rule.edn` is the DataScript schema. `:source-article` and
